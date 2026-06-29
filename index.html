@@ -1416,8 +1416,14 @@ function doLogin(){
     renderAdminProds(); renderAdminCats(); renderAdminZones();
     document.getElementById('prod-count').textContent=`${catalog.products.length} productos en catálogo`;
     document.getElementById('cat-count').textContent=`${catalog.categories.length} categorías`;
-    const tok=localStorage.getItem('gh_tok_suli');
-    if(tok){ document.getElementById('gh-token-input').value='••••••••••'; document.getElementById('token-status').textContent='✅ Token guardado en este dispositivo'; }
+    // cargar token encriptado
+    decryptToken(ADMIN_PASS).then(tok=>{
+      if(tok){
+        _cachedToken=tok;
+        document.getElementById('gh-token-input').value='••••••••••';
+        document.getElementById('token-status').textContent='✅ Token guardado y encriptado en este dispositivo';
+      }
+    });
   } else {
     document.getElementById('pass-err').style.display='block';
     document.getElementById('admin-pass').value='';
@@ -1430,18 +1436,58 @@ function switchAdminTab(t){
   event.target.classList.add('active');
   if(t==='personalizacion') loadPersonalizacionForm();
 }
-function getToken(){ return localStorage.getItem('gh_tok_suli')||''; }
-function saveToken(){
-  const t=document.getElementById('gh-token-input').value.trim();
+/* ── TOKEN ENCRIPTADO ── */
+const TOK_KEY = 'gh_tok_suli_enc';
+const TOK_IV  = 'gh_tok_suli_iv';
+
+async function deriveKey(pass){
+  const enc = new TextEncoder();
+  const raw = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt: enc.encode('suli_salt_2024'), iterations:100000, hash:'SHA-256' },
+    raw, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']
+  );
+}
+async function encryptToken(tok, pass){
+  const key = await deriveKey(pass);
+  const iv  = crypto.getRandomValues(new Uint8Array(12));
+  const enc = new TextEncoder();
+  const ct  = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, enc.encode(tok));
+  localStorage.setItem(TOK_KEY, btoa(String.fromCharCode(...new Uint8Array(ct))));
+  localStorage.setItem(TOK_IV,  btoa(String.fromCharCode(...iv)));
+}
+async function decryptToken(pass){
+  const ct64 = localStorage.getItem(TOK_KEY);
+  const iv64 = localStorage.getItem(TOK_IV);
+  if(!ct64||!iv64) return '';
+  try{
+    const key = await deriveKey(pass);
+    const ct  = Uint8Array.from(atob(ct64), c=>c.charCodeAt(0));
+    const iv  = Uint8Array.from(atob(iv64),  c=>c.charCodeAt(0));
+    const pt  = await crypto.subtle.decrypt({ name:'AES-GCM', iv }, key, ct);
+    return new TextDecoder().decode(pt);
+  } catch{ return ''; }
+}
+
+let _cachedToken = '';
+async function getToken(){
+  if(_cachedToken) return _cachedToken;
+  _cachedToken = await decryptToken(ADMIN_PASS);
+  return _cachedToken;
+}
+async function saveToken(){
+  const t = document.getElementById('gh-token-input').value.trim();
   if(!t||t==='••••••••••'){ showToast('⚠️ Ingresa un token válido'); return; }
-  localStorage.setItem('gh_tok_suli',t);
-  document.getElementById('token-status').textContent='✅ Token guardado';
+  await encryptToken(t, ADMIN_PASS);
+  _cachedToken = t;
+  document.getElementById('gh-token-input').value = '••••••••••';
+  document.getElementById('token-status').textContent = '✅ Token guardado y encriptado en este dispositivo';
   showToast('🔑 Token guardado');
 }
 
 /* GITHUB SAVE */
 async function ghSave(filename,data){
-  const token=getToken();
+  const token=await getToken();
   if(!token){ showToast('⚠️ Ingresa el token GitHub primero'); return false; }
   const heads={'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'};
   let sha;
