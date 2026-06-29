@@ -1179,9 +1179,9 @@ let siteSettings = {
 
 /* ══ INIT ══ */
 async function init(){
-  try{ const r=await fetch(`${GH_RAW}${GH_CAT}?_=${Date.now()}`); if(r.ok) catalog=await r.json(); }catch{}
-  try{ const r=await fetch(`${GH_RAW}${GH_ZONES}?_=${Date.now()}`); if(r.ok) zones=await r.json(); }catch{}
-  try{ const r=await fetch(`${GH_RAW}${GH_SETTINGS}?_=${Date.now()}`); if(r.ok){ const s=await r.json(); siteSettings={...siteSettings,...s}; applySettings(); } }catch{}
+  try{ const r=await fetch(`${GH_RAW}${GH_CAT}?_=${Date.now()}`); if(r.ok){ catalog=await r.json(); localStorage.setItem('suli_catalog', JSON.stringify(catalog)); } else { const saved=localStorage.getItem('suli_catalog'); if(saved) try{ catalog=JSON.parse(saved); }catch{} } }catch{ const saved=localStorage.getItem('suli_catalog'); if(saved) try{ catalog=JSON.parse(saved); }catch{} }
+  try{ const r=await fetch(`${GH_RAW}${GH_ZONES}?_=${Date.now()}`); if(r.ok){ zones=await r.json(); localStorage.setItem('suli_zones', JSON.stringify(zones)); } else { const saved=localStorage.getItem('suli_zones'); if(saved) try{ zones=JSON.parse(saved); }catch{} } }catch{ const saved=localStorage.getItem('suli_zones'); if(saved) try{ zones=JSON.parse(saved); }catch{} }
+  try{ const r=await fetch(`${GH_RAW}${GH_SETTINGS}?_=${Date.now()}`); if(r.ok){ const s=await r.json(); siteSettings={...siteSettings,...s}; localStorage.setItem('suli_settings', JSON.stringify(siteSettings)); applySettings(); } else { const saved=localStorage.getItem('suli_settings'); if(saved) try{ const s=JSON.parse(saved); siteSettings={...siteSettings,...s}; applySettings(); }catch{} } }catch{ const saved=localStorage.getItem('suli_settings'); if(saved) try{ const s=JSON.parse(saved); siteSettings={...siteSettings,...s}; applySettings(); }catch{} }
   activeCat = catalog.categories[0]?.id || "";
   renderCats(); renderProds(); updateCartUI(); populateZoneSelect();
 }
@@ -1416,14 +1416,12 @@ function doLogin(){
     renderAdminProds(); renderAdminCats(); renderAdminZones();
     document.getElementById('prod-count').textContent=`${catalog.products.length} productos en catálogo`;
     document.getElementById('cat-count').textContent=`${catalog.categories.length} categorías`;
-    // cargar token encriptado
-    decryptToken(ADMIN_PASS).then(tok=>{
-      if(tok){
-        _cachedToken=tok;
-        document.getElementById('gh-token-input').value='••••••••••';
-        document.getElementById('token-status').textContent='✅ Token guardado y encriptado en este dispositivo';
-      }
-    });
+    // cargar token guardado
+    const tok = getToken();
+    if(tok){
+      document.getElementById('gh-token-input').value='••••••••••';
+      document.getElementById('token-status').textContent='✅ Token guardado en este dispositivo';
+    }
   } else {
     document.getElementById('pass-err').style.display='block';
     document.getElementById('admin-pass').value='';
@@ -1436,58 +1434,24 @@ function switchAdminTab(t){
   event.target.classList.add('active');
   if(t==='personalizacion') loadPersonalizacionForm();
 }
-/* ── TOKEN ENCRIPTADO ── */
-const TOK_KEY = 'gh_tok_suli_enc';
-const TOK_IV  = 'gh_tok_suli_iv';
+/* ── TOKEN (simple localStorage, persiste siempre) ── */
+const TOK_KEY = 'gh_token_suli';
 
-async function deriveKey(pass){
-  const enc = new TextEncoder();
-  const raw = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    { name:'PBKDF2', salt: enc.encode('suli_salt_2024'), iterations:100000, hash:'SHA-256' },
-    raw, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']
-  );
+function getToken(){
+  return localStorage.getItem(TOK_KEY) || '';
 }
-async function encryptToken(tok, pass){
-  const key = await deriveKey(pass);
-  const iv  = crypto.getRandomValues(new Uint8Array(12));
-  const enc = new TextEncoder();
-  const ct  = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, enc.encode(tok));
-  localStorage.setItem(TOK_KEY, btoa(String.fromCharCode(...new Uint8Array(ct))));
-  localStorage.setItem(TOK_IV,  btoa(String.fromCharCode(...iv)));
-}
-async function decryptToken(pass){
-  const ct64 = localStorage.getItem(TOK_KEY);
-  const iv64 = localStorage.getItem(TOK_IV);
-  if(!ct64||!iv64) return '';
-  try{
-    const key = await deriveKey(pass);
-    const ct  = Uint8Array.from(atob(ct64), c=>c.charCodeAt(0));
-    const iv  = Uint8Array.from(atob(iv64),  c=>c.charCodeAt(0));
-    const pt  = await crypto.subtle.decrypt({ name:'AES-GCM', iv }, key, ct);
-    return new TextDecoder().decode(pt);
-  } catch{ return ''; }
-}
-
-let _cachedToken = '';
-async function getToken(){
-  if(_cachedToken) return _cachedToken;
-  _cachedToken = await decryptToken(ADMIN_PASS);
-  return _cachedToken;
-}
-async function saveToken(){
+function saveToken(){
   const t = document.getElementById('gh-token-input').value.trim();
   if(!t||t==='••••••••••'){ showToast('⚠️ Ingresa un token válido'); return; }
-  await encryptToken(t, ADMIN_PASS);
-  _cachedToken = t;
+  localStorage.setItem(TOK_KEY, t);
   document.getElementById('gh-token-input').value = '••••••••••';
-  document.getElementById('token-status').textContent = '✅ Token guardado y encriptado en este dispositivo';
+  document.getElementById('token-status').textContent = '✅ Token guardado en este dispositivo';
   showToast('🔑 Token guardado');
 }
 
 /* GITHUB SAVE */
 async function ghSave(filename,data){
-  const token=await getToken();
+  const token=getToken();
   if(!token){ showToast('⚠️ Ingresa el token GitHub primero'); return false; }
   const heads={'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'};
   let sha;
@@ -1496,6 +1460,10 @@ async function ghSave(filename,data){
     ...(sha?{sha}:{})};
   const r=await fetch(GH_API+filename,{method:'PUT',headers:heads,body:JSON.stringify(body)});
   if(!r.ok){ const e=await r.json().catch(()=>({})); showToast('❌ Error: '+(e.message||r.status)); return false; }
+  // Guardar en localStorage como respaldo local
+  if(filename===GH_CAT) localStorage.setItem('suli_catalog', JSON.stringify(data));
+  if(filename===GH_ZONES) localStorage.setItem('suli_zones', JSON.stringify(data));
+  if(filename===GH_SETTINGS) localStorage.setItem('suli_settings', JSON.stringify(data));
   return true;
 }
 
