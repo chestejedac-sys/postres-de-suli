@@ -677,6 +677,17 @@
       "desc": "Decoración 'Feliz Cumpleaños' para pastel.",
       "available": true,
       "popular": false
+    },
+    {
+      "id": "p1782741379040",
+      "name": "1",
+      "price": 1,
+      "desc": "",
+      "emoji": "",
+      "category": "extras",
+      "available": true,
+      "popular": false,
+      "image": null
     }
   ]
 }
