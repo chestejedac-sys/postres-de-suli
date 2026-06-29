@@ -635,7 +635,7 @@
       "price": 250,
       "emoji": "🍚",
       "desc": "Súper cremoso, vaso de 8 onzas.",
-      "available": false,
+      "available": true,
       "popular": false
     },
     {
