@@ -625,7 +625,7 @@
       "price": 10000,
       "emoji": "😇",
       "desc": "Pastel relleno de un delicioso y cremoso flan, bañado en tres leches.",
-      "available": false,
+      "available": true,
       "popular": false
     },
     {
